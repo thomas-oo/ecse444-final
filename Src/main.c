@@ -72,16 +72,18 @@ osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim2;
 int tim3_flag = 0;
-float tick = 0;
 float t = 0;
 float signalFreq = 440;
 float sampleFreq = 16000;
 float32_t sinOutput = 0; //range: [-1, 1]
+int scaledOutput = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+static void MX_TIM2_Init(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_DFSDM1_Init(void);
@@ -103,22 +105,6 @@ int fgetc(FILE *f) {
   uint8_t ch = 0;
   while (HAL_OK != HAL_UART_Receive(&huart1, (uint8_t *)&ch, 1, 30000));
   return ch;
-}
-
-//systick inc at 80kHz
-//thus output sine value every 5 ticks
-void HAL_SYSTICK_Callback(void) {
-	if (tick == 4) {
-		sinOutput = arm_sin_f32(2.0f * M_PI * signalFreq * t / sampleFreq);
-		t++;
-		t = fmod(t, 32000);
-	}
-	tick++;
-	tick = fmod(t, 5);
-	//s(t) = sin(2*pi*f*t / Ts)
-	//f = 440Hz
-	//Ts should be 16kHz (freq of this function)
-	//t will be [0, 31999]
 }
 
 /* USER CODE END 0 */
@@ -275,10 +261,43 @@ void SystemClock_Config(void)
 
     /**Configure the Systick 
     */
-  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK); //thus systick is at 80kHz
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
   /* SysTick_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+}
+
+/* TIM2 init function */
+static void MX_TIM2_Init(void)
+{
+
+  TIM_ClockConfigTypeDef sClockSourceConfig;
+  TIM_MasterConfigTypeDef sMasterConfig;
+
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 10; //80Mhz -> 8Mhz
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 500; //8Mhz -> 16Khz
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
 }
 
 /* DAC1 init function */
@@ -438,7 +457,18 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+		//s(t) = sin(2*pi*f*t / Ts)
+		//f = 440Hz
+		//Ts should be 16kHz (freq of this function)
+		//t will be [0, 31999]
+		sinOutput = arm_sin_f32(M_PI * signalFreq * t / sampleFreq);
+		t++;
+		t = fmod(t, 32000);
+		
+		scaledOutput = (sinOutput + 1) * 1024; //highest value is 2 * 1024 = 2048 which is half of 2^12
+		
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
   }
   /* USER CODE END 5 */ 
 }
@@ -454,7 +484,20 @@ void StartDefaultTask(void const * argument)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
-
+	
+	//s(t) = sin(2*pi*f*t / Ts)
+	//f = 440Hz
+	//Ts should be 16kHz (freq of this function)
+	//t will be [0, 31999]
+//	sinOutput = arm_sin_f32(2.0f * M_PI * signalFreq * t / sampleFreq);
+//	t++;
+//	t = fmod(t, 16000);
+//	
+//	scaledOutput = (sinOutput + 1) * 1024; //highest value is 2 * 1024 = 2048 which is half of 2^12
+//	
+//	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
+//	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
+	
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM17) {
     HAL_IncTick();

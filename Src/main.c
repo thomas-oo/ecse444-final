@@ -66,6 +66,8 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter1;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel1;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
 
 osThreadId defaultTaskHandle;
@@ -75,19 +77,25 @@ osThreadId defaultTaskHandle;
 TIM_HandleTypeDef htim2;
 int tim3_flag = 0;
 float t = 0;
-float signalFreq = 440;
+float signalFreq1 = 262;
+float signalFreq2 = 392;
 float sampleFreq = 16000;
-float32_t sinOutput = 0; //range: [-1, 1]
+float32_t sinOutput1 = 0; //range: [-1, 1]
+float32_t sinOutput2 = 0;
 int scaledOutput = 0;
+int scaledOutput2 = 0;
+
+float32_t matrixData[4] = {0.3, 0.7, 0.8, 0.2};
+arm_matrix_instance_f32 matrix = {.numRows=2, .numCols=2, .pData=matrixData};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_TIM2_Init(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_DFSDM1_Init(void);
 static void MX_DAC1_Init(void);
+static void MX_TIM2_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
@@ -141,7 +149,9 @@ int main(void)
   MX_USART1_UART_Init();
   MX_DFSDM1_Init();
   MX_DAC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+	HAL_TIM_Base_Start_IT(&htim2);
 	HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 	HAL_DAC_Start(&hdac1, DAC_CHANNEL_2);
   /* USER CODE END 2 */
@@ -183,9 +193,11 @@ int main(void)
 	while (1)
   {
   /* USER CODE END WHILE */
+
   /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
+
 }
 
 /**
@@ -265,39 +277,6 @@ void SystemClock_Config(void)
 
   /* SysTick_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
-}
-
-/* TIM2 init function */
-static void MX_TIM2_Init(void)
-{
-
-  TIM_ClockConfigTypeDef sClockSourceConfig;
-  TIM_MasterConfigTypeDef sMasterConfig;
-
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 10; //80Mhz -> 8Mhz
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 500; //8Mhz -> 16Khz
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
 }
 
 /* DAC1 init function */
@@ -412,6 +391,39 @@ static void MX_DFSDM1_Init(void)
 
 }
 
+/* TIM2 init function */
+static void MX_TIM2_Init(void)
+{
+
+  TIM_ClockConfigTypeDef sClockSourceConfig;
+  TIM_MasterConfigTypeDef sMasterConfig;
+
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 10;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 500;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+}
+
 /* USART1 init function */
 static void MX_USART1_UART_Init(void)
 {
@@ -461,14 +473,19 @@ void StartDefaultTask(void const * argument)
 		//f = 440Hz
 		//Ts should be 16kHz (freq of this function)
 		//t will be [0, 31999]
-		sinOutput = arm_sin_f32(M_PI * signalFreq * t / sampleFreq);
-		t++;
-		t = fmod(t, 32000);
-		
-		scaledOutput = (sinOutput + 1) * 1024; //highest value is 2 * 1024 = 2048 which is half of 2^12
-		
-		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
-		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
+//		sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * t / sampleFreq);
+//		sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * t / sampleFreq);
+//		t++;
+//		t = fmod(t, 32000);
+//		
+//		scaledOutput = (sinOutput1 + 1) * 512; //highest value is 2 * 1024 = 2048 which is half of 2^12
+//		scaledOutput2 = (sinOutput2 + 1) * 512;
+//		
+//		float32_t inputData[2] = {scaledOutput, scaledOutput2};
+//		float32_t mixedData[4];
+//		arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=2, .pData=mixedData};
+//		arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
+//		arm_mat_mult_f32(&matrix, &input, &mixed);
   }
   /* USER CODE END 5 */ 
 }
@@ -485,25 +502,30 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
 	
-	//s(t) = sin(2*pi*f*t / Ts)
-	//f = 440Hz
-	//Ts should be 16kHz (freq of this function)
-	//t will be [0, 31999]
-//	sinOutput = arm_sin_f32(2.0f * M_PI * signalFreq * t / sampleFreq);
-//	t++;
-//	t = fmod(t, 16000);
-//	
-//	scaledOutput = (sinOutput + 1) * 1024; //highest value is 2 * 1024 = 2048 which is half of 2^12
-//	
-//	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
-//	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
-	
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM17) {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+	if (htim->Instance == TIM2) {
+		sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * t / sampleFreq);
+		sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * t / sampleFreq);
+		t++;
+		t = fmod(t, 16000);
+		
+		scaledOutput = (sinOutput1 + 1) * 512; //highest value is 2 * 1024 = 2048 which is half of 2^12
+		scaledOutput2 = (sinOutput2 + 1) * 512;
+//    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
+//		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
+		
+		float32_t inputData[2] = {scaledOutput, scaledOutput2};
+		float32_t mixedData[2];
+		arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=1, .pData=mixedData};
+		arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
+		arm_mat_mult_f32(&matrix, &input, &mixed);
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, mixedData[0]);
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, mixedData[1]);
+  }
   /* USER CODE END Callback 1 */
 }
 

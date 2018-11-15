@@ -84,6 +84,8 @@ float32_t sinOutput1 = 0; //range: [-1, 1]
 float32_t sinOutput2 = 0;
 int scaledOutput = 0;
 int scaledOutput2 = 0;
+float32_t data1, data2;
+uint32_t addr = 0;
 
 float32_t matrixData[4] = {0.3, 0.7, 0.8, 0.2};
 arm_matrix_instance_f32 matrix = {.numRows=2, .numCols=2, .pData=matrixData};
@@ -450,10 +452,21 @@ static void MX_USART1_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
 
+GPIO_InitTypeDef GPIO_InitStruct;
+
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
 }
 
@@ -464,28 +477,65 @@ static void MX_GPIO_Init(void)
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
-
+	uint32_t tempAddr = addr;
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
-  for(;;)
-  {
+	BSP_QSPI_Erase_Chip();
+	BSP_QSPI_Init();
+	BSP_QSPI_Erase_Sector(0);
+	while (QSPI_OK != BSP_QSPI_GetStatus())
+	osDelay(1000);
+	for(int i = 0; i < 32000; i++){
 		//s(t) = sin(2*pi*f*t / Ts)
 		//f = 440Hz
 		//Ts should be 16kHz (freq of this function)
 		//t will be [0, 31999]
-//		sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * t / sampleFreq);
-//		sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * t / sampleFreq);
-//		t++;
-//		t = fmod(t, 32000);
-//		
-//		scaledOutput = (sinOutput1 + 1) * 512; //highest value is 2 * 1024 = 2048 which is half of 2^12
-//		scaledOutput2 = (sinOutput2 + 1) * 512;
-//		
-//		float32_t inputData[2] = {scaledOutput, scaledOutput2};
-//		float32_t mixedData[4];
-//		arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=2, .pData=mixedData};
-//		arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
-//		arm_mat_mult_f32(&matrix, &input, &mixed);
+			sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * i / sampleFreq);
+			sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * i / sampleFreq);
+			scaledOutput = (sinOutput1 + 1) * 128; //Scale the output to be 0 to 255
+			scaledOutput2 = (sinOutput2 + 1) * 128;
+		//algorithm for mixing signals
+			float32_t inputData[2] = {scaledOutput, scaledOutput2};
+			float32_t mixedData[2];
+			arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=1, .pData=mixedData};
+			arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
+			arm_mat_mult_f32(&matrix, &input, &mixed);
+		//mixed signals are stored in mixedData[2]
+			data1 = mixedData[0];
+			data2 = mixedData[1];
+		//write data into memory, starting at address 0. 
+		//we write 2 signals in adjacent addresses and increment the address by 2
+			if (QSPI_OK != BSP_QSPI_Write((uint8_t*)&data1, tempAddr, 4)) {
+				int lol= 1;
+			}
+			if (QSPI_OK != BSP_QSPI_Write((uint8_t*)&data2, tempAddr + 4, 4)) {
+				int hi = 1;
+			}
+			tempAddr = tempAddr + 8;	
+	}
+	tempAddr = addr;
+
+	
+	
+	
+  for(;;)
+  {
+	
+	if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 0){
+			
+			if(tim3_flag){
+			//read 2 data at a time starting from address 0, place data into a buffer data[2]
+				BSP_QSPI_Read((uint8_t*)&data1, tempAddr, 4);
+				BSP_QSPI_Read((uint8_t*)&data2, tempAddr + 4, 4);
+			//write data into dac and increment address by 8
+				HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 2*data1);
+				HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 2*data2);
+				tempAddr = tempAddr + 8;
+				if(tempAddr >= 256000) tempAddr = addr;
+				tim3_flag = 0;
+			}
+
+		}
   }
   /* USER CODE END 5 */ 
 }
@@ -503,29 +553,29 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 	
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM17) {
+  if (htim->Instance == TIM2) {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-	if (htim->Instance == TIM2) {
-		sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * t / sampleFreq);
-		sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * t / sampleFreq);
-		t++;
-		t = fmod(t, 16000);
-		
-		scaledOutput = (sinOutput1 + 1) * 512; //highest value is 2 * 1024 = 2048 which is half of 2^12
-		scaledOutput2 = (sinOutput2 + 1) * 512;
-//    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
-//		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
-		
-		float32_t inputData[2] = {scaledOutput, scaledOutput2};
-		float32_t mixedData[2];
-		arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=1, .pData=mixedData};
-		arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
-		arm_mat_mult_f32(&matrix, &input, &mixed);
-		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, mixedData[0]);
-		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, mixedData[1]);
-  }
+//	if (htim->Instance == TIM2) {
+//		sinOutput1 = arm_sin_f32(2*M_PI * signalFreq1 * t / sampleFreq);
+//		sinOutput2 = arm_sin_f32(2*M_PI * signalFreq2 * t / sampleFreq);
+//		t++;
+//		t = fmod(t, 16000);
+//		
+//		scaledOutput = (sinOutput1 + 1) * 512; //highest value is 2 * 1024 = 2048 which is half of 2^12
+//		scaledOutput2 = (sinOutput2 + 1) * 512;
+////    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, scaledOutput);
+////		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, scaledOutput);
+//		
+//		float32_t inputData[2] = {scaledOutput, scaledOutput2};
+//		float32_t mixedData[2];
+//		arm_matrix_instance_f32 mixed = {.numRows=2, .numCols=1, .pData=mixedData};
+//		arm_matrix_instance_f32 input = {.numRows=2, .numCols=1, .pData=inputData};
+//		arm_mat_mult_f32(&matrix, &input, &mixed);
+//		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, mixedData[0]);
+//		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, mixedData[1]);
+//  }
   /* USER CODE END Callback 1 */
 }
 

@@ -21,19 +21,24 @@ Target DLL:      STLink\ST-LINKIII-KEIL_SWO.dll V2.0.15.0_KEIL
 Dialog DLL:      TCM.DLL V1.14.5.0
  
 <h2>Project:</h2>
-C:\Users\too\Downloads\Final_BaseProject\MDK-ARM\GXX_Project.uvprojx
-Project File Date:  11/13/2018
+C:\Users\too\Downloads\ecse444-final\MDK-ARM\GXX_Project.uvprojx
+Project File Date:  11/15/2018
 
 <h2>Output:</h2>
 *** Using Compiler 'V5.05 update 2 (build 169)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'GXX_Project'
 compiling main.c...
+../Src/main.c(509): warning:  #177-D: variable "lol" was declared but never referenced
+                                int lol= 1;
+../Src/main.c(512): warning:  #177-D: variable "hi" was declared but never referenced
+                                int hi = 1;
+../Src/main.c: 2 warnings, 0 errors
 linking...
 GXX_Project\GXX_Project.axf: Warning: L6988W: Ignoring unknown patch sdcomp-29491-629360.
-Program Size: Code=16008 RO-data=2676 RW-data=180 ZI-data=4844  
+Program Size: Code=19112 RO-data=2676 RW-data=192 ZI-data=4912  
 Finished: 0 information, 1 warning and 0 error messages.
 FromELF: creating hex file...
-"GXX_Project\GXX_Project.axf" - 0 Error(s), 1 Warning(s).
+"GXX_Project\GXX_Project.axf" - 0 Error(s), 3 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -45,7 +50,7 @@ Package Vendor: ARM
    * Component: DSP Version: 1.5.2
 
 <h2>Collection of Component include folders:</h2>
-  C:\Users\too\Downloads\Final_BaseProject\MDK-ARM\RTE
+  C:\Users\too\Downloads\ecse444-final\MDK-ARM\RTE
   C:\Keil_v5\ARM\PACK\ARM\CMSIS\5.3.0\CMSIS\Include
   C:\Keil_v5\ARM\PACK\Keil\STM32L4xx_DFP\2.0.0\Drivers\CMSIS\Device\ST\STM32L4xx\Include
 
